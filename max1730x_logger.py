@@ -11,7 +11,7 @@
 #
 # Author: Brent Kowal <brent.kowal@analog.com>
 #
-
+import platform
 import argparse
 import csv
 import io
@@ -20,7 +20,7 @@ import max1730x_regs
 from datetime import datetime
 from i2c_iface import I_I2C
 from smbus2_iface import smbus2_i2c
-
+from ftd2xx_iface import ftd2xx_i2c
 ####
 # Note: While likely not necessary, to save on some unnecessary dictionaries or
 # data frames, the register data is pulled in and written to the CSV
@@ -33,7 +33,8 @@ from smbus2_iface import smbus2_i2c
 
 
 # Dictionary of possible interface names and the classes
-INTERFACE_DICT = { 'linux': smbus2_i2c }
+INTERFACE_DICT = { 'smbus2' : smbus2_i2c,
+                   'ftdi'   : ftd2xx_i2c}
 
 #Status interval in seconds
 STATUS_INTERVAL = 30
@@ -93,7 +94,7 @@ def start_logging(output_file: io.TextIOBase,  bus_dev: I_I2C,
 
             #Do the register pages first
             for page in max1730x_regs.REGISTER_PAGES:
-                reg_data = bus_dev.i2c_read_words(page.dev_addr, page.base_addr, 16)
+                reg_data = bus_dev.i2c_read_words(page.dev_addr, page.base_addr & 0xFF, 16)
                 if keep_rsvd:
                     row_data += ['{:04X}'.format(w) for w in reg_data]
                 else:
@@ -103,11 +104,11 @@ def start_logging(output_file: io.TextIOBase,  bus_dev: I_I2C,
             for sbs in max1730x_regs.SBS_REGISTERS:
                 if sbs.block_size > 0:
                     #For block reads, the data is a bit Hex string
-                    reg_data = bus_dev.sbs_block_read(sbs.dev_addr, sbs.base_addr, sbs.block_size)
+                    reg_data = bus_dev.sbs_block_read(sbs.dev_addr, sbs.base_addr & 0xFF, sbs.block_size)
                     row_data.append(''.join(['{:02X}'.format(r) for r in reg_data]))
                 else:
                     #For words, same as a normal 16-bit register
-                    row_data.append('{:04X}'.format(bus_dev.sbs_word_read(sbs.dev_addr, sbs.base_addr)))
+                    row_data.append('{:04X}'.format(bus_dev.sbs_word_read(sbs.dev_addr, sbs.base_addr & 0xFF)))
 
             #Write it to the CSV file
             csv_wr.writerow(row_data)
@@ -119,7 +120,10 @@ def start_logging(output_file: io.TextIOBase,  bus_dev: I_I2C,
                 status_time = now_time + STATUS_INTERVAL
 
             #Simple periodic loop, accounting for time spent doing work
-            time.sleep(next_time - time.time())
+            delay = next_time - time.time()
+            if delay > 0:
+                time.sleep(delay)
+
         except KeyboardInterrupt:
             #Always exit on a keyboard interrupt
             print('User interrupt via Keyboard')
@@ -148,16 +152,24 @@ if __name__ == '__main__':
     #Generate a default file name based on the current date and time
     def_out_file = datetime.now().strftime('max1730x_log_%Y-%m-%d_%H%M%S.csv')
 
+    #Give the user some valuable defaults
+    if platform.system() == 'Windows':
+        def_iface = 'ftdi'
+        def_bus = 1
+    else:
+        def_iface = 'smbus2'
+        def_bus = 6
+
     #Accept some user arguments
     parser = argparse.ArgumentParser(
         description='Simple application for continuously logging the register '
                      'map for the MAX1730x series of parts',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('-i', '--iface', dest='iface',
-                        type=arg_check_interface, default='linux',
+                        type=arg_check_interface, default=def_iface,
                         help='Select Interface: ' + ','.join(INTERFACE_DICT.keys()))
     parser.add_argument('-b', '--bus', dest='bus_num',
-                        type=int, default='6',
+                        type=int, default=def_bus,
                         help='I2C bus number for the interface.')
     parser.add_argument('-o', '--output', dest='out_file',
                         type=str, default=def_out_file,
@@ -175,5 +187,13 @@ if __name__ == '__main__':
         print('Failed to open I2C device!')
         quit()
 
-    with open(args.out_file, 'w') as output_file:
+    # Do a simple poke of a register to make sure comms are alive before starting
+    try:
+        bus.i2c_read_words(max1730x_regs.M5_DEV_ADDR, 0, 1)
+    except:
+        print('Failed to communicate with device. Check configuration')
+        quit()
+
+    #Per recommendation of CSV documentation, open file with newline = ''
+    with open(args.out_file, 'w', newline='', encoding='utf-8') as output_file:
         start_logging(output_file, bus, args.exit_on_error, args.interval)

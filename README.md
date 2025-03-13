@@ -12,7 +12,8 @@ is in seconds (Epoch time).
 
 ## Operation
 The scripts may be run with the following parameters. The default output filename
-will be based on the current date and time of the system.
+will be based on the current date and time of the system. The default bus and
+iface will be based on the host platform.
 ```
 usage: max1730x_logger.py [-h] [-i IFACE] [-b BUS_NUM] [-o OUT_FILE] [-x] [-t INTERVAL]
 
@@ -21,11 +22,11 @@ Simple application for continuously logging the register map for the MAX1730x se
 options:
   -h, --help            show this help message and exit
   -i IFACE, --iface IFACE
-                        Select Interface:linux (default: linux)
+                        Select Interface: smbus2,ftdi (default: ftdi)
   -b BUS_NUM, --bus BUS_NUM
-                        I2C bus number for the interface. (default: 6)
+                        I2C bus number for the interface. (default: 1)
   -o OUT_FILE, --output OUT_FILE
-                        File name for the output CSV (default: max1730x_log_2025-03-12_150144.csv)
+                        File name for the output CSV (default: max1730x_log_2025-03-13_101227.csv)
   -x                    Exit the application on a bus error. (default: False)
   -t INTERVAL, --time INTERVAL
                         Collection interval, in seconds. (default: 5.0)
@@ -44,6 +45,15 @@ GPIO 22 and 23, add the following line to the /boot/firmware/config.txt (or
 /boot/config.txt) file: `dtoverlay=i2c6,pins_22_23`.
 
 ### Windows: EvKit (FTDI)
-TBD.
+The MAX1730x EvKit uses a FTDI2322H device.  To maintain functionality with the
+EvKit's GUI, the interface implementation of this script uses the ftd2xx Python
+package which is a wrapper around the FTDI DLLs.  The resulting command and
+control code was derived from the FTDI's MPSSE Library and example projects.
+
+To install ftd2xx, simply run `pip install ftd2xx`
+
+**NOTE:** When working under Windows, the bus number is typically 1
+
+
 
 
